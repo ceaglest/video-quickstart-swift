@@ -6,6 +6,7 @@
 //
 
 import UIKit
+import AVFoundation
 
 import TwilioVideo
 
@@ -18,7 +19,7 @@ class ViewController: UIViewController {
     var accessToken = "TWILIO_ACCESS_TOKEN"
   
     // Configure remote URL to fetch token from
-    var tokenUrl = "http://localhost:8000/token.php"
+    let tokenUrl = "http://127.0.0.1:5000/?identity=chris.ios.sim&room=chris"
     
     // Video SDK components
     var room: TVIRoom?
@@ -48,6 +49,8 @@ class ViewController: UIViewController {
         self.title = "QuickStart"
         self.messageLabel.adjustsFontSizeToFitWidth = true;
         self.messageLabel.minimumScaleFactor = 0.75;
+
+        TwilioVideo.setLogLevel(TVILogLevel.debug)
 
         if PlatformUtils.isSimulator {
             self.previewView.removeFromSuperview()
@@ -189,7 +192,8 @@ class ViewController: UIViewController {
         }
 
         // Preview our local camera track in the local video preview view.
-        camera = TVICameraCapturer(source: .frontCamera, delegate: self)
+        camera = TVICameraCapturer(source: .backCameraWide, delegate: self)
+
         localVideoTrack = TVILocalVideoTrack.init(capturer: camera!, enabled: true, constraints: nil, name: "Camera")
         if (localVideoTrack == nil) {
             logMessage(messageText: "Failed to create video track")
@@ -202,6 +206,31 @@ class ViewController: UIViewController {
             // We will flip camera on tap.
             let tap = UITapGestureRecognizer(target: self, action: #selector(ViewController.flipCamera))
             self.previewView.addGestureRecognizer(tap)
+        }
+    }
+
+    func rearCaptureDevice() -> AVCaptureDevice {
+        // This only works on iOS 10+!
+        if #available(iOS 10.0, *) {
+            let discoverySession = AVCaptureDevice.DiscoverySession.init(deviceTypes: [AVCaptureDevice.DeviceType.builtInWideAngleCamera],
+                                                                         mediaType: AVMediaType.video,
+                                                                         position: AVCaptureDevice.Position.back)
+            return (discoverySession.devices.first)!
+        } else {
+            // TODO: Fallback on earlier versions
+            return (AVCaptureDevice.devices().first)!
+        }
+    }
+
+    func zoomCamera(factor: CGFloat) {
+        let device = rearCaptureDevice();
+
+        do {
+            try device.lockForConfiguration()
+            device.videoZoomFactor = factor;
+            device.unlockForConfiguration()
+        } catch {
+            print(error)
         }
     }
 
@@ -451,5 +480,10 @@ extension ViewController : TVIVideoViewDelegate {
 extension ViewController : TVICameraCapturerDelegate {
     func cameraCapturer(_ capturer: TVICameraCapturer, didStartWith source: TVICameraCaptureSource) {
         self.previewView.shouldMirror = (source == .frontCamera)
+
+        if (source == .backCameraWide) {
+            zoomCamera(factor: 6.0)
+//            turnCameraTorchOn(true);
+        }
     }
 }
