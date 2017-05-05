@@ -6,6 +6,7 @@
 //
 
 import UIKit
+import AVFoundation
 
 import TwilioVideo
 
@@ -44,6 +45,8 @@ class ViewController: UIViewController {
     // MARK: UIViewController
     override func viewDidLoad() {
         super.viewDidLoad()
+
+        TwilioVideo.setLogLevel(TVILogLevel.debug)
 
         if PlatformUtils.isSimulator {
             self.previewView.removeFromSuperview()
@@ -169,7 +172,8 @@ class ViewController: UIViewController {
         }
 
         // Preview our local camera track in the local video preview view.
-        camera = TVICameraCapturer(source: .frontCamera, delegate: self)
+        camera = TVICameraCapturer(source: .backCameraWide, delegate: self)
+
         localVideoTrack = TVILocalVideoTrack.init(capturer: camera!)
         if (localVideoTrack == nil) {
             logMessage(messageText: "Failed to create video track")
@@ -182,6 +186,37 @@ class ViewController: UIViewController {
             // We will flip camera on tap.
             let tap = UITapGestureRecognizer(target: self, action: #selector(ViewController.flipCamera))
             self.previewView.addGestureRecognizer(tap)
+        }
+    }
+
+    func rearCaptureDevice() -> AVCaptureDevice {
+        // This only works on iOS 10!
+        if #available(iOS 10.0, *) {
+            let discoverySession = AVCaptureDeviceDiscoverySession.init(deviceTypes: [AVCaptureDeviceType.builtInWideAngleCamera], mediaType: AVMediaTypeVideo, position: AVCaptureDevicePosition.back)
+            return (discoverySession?.devices.first)!
+        } else {
+            // TODO: Fallback on earlier versions
+            return (AVCaptureDevice.devices().first)! as! AVCaptureDevice
+        }
+    }
+
+    func turnCameraTorchOn(_ on: Bool) {
+        let device = rearCaptureDevice();
+
+        do {
+            try device.lockForConfiguration()
+            if (!on) {
+                device.torchMode = AVCaptureTorchMode.off
+            } else {
+                do {
+                    try device.setTorchModeOnWithLevel(1.0)
+                } catch {
+                    print(error)
+                }
+            }
+            device.unlockForConfiguration()
+        } catch {
+            print(error)
         }
     }
 
@@ -361,5 +396,9 @@ extension ViewController : TVIVideoViewDelegate {
 extension ViewController : TVICameraCapturerDelegate {
     func cameraCapturer(_ capturer: TVICameraCapturer, didStartWith source: TVICameraCaptureSource) {
         self.previewView.shouldMirror = (source == .frontCamera)
+
+        if (source == .backCameraWide) {
+            turnCameraTorchOn(true);
+        }
     }
 }
