@@ -27,7 +27,11 @@ class ViewController: UIViewController {
     var localAudioTrack: TVILocalAudioTrack?
     var participant: TVIParticipant?
     var remoteView: TVIVideoView?
-    
+
+    // TVIVideoRenderer
+    // Declare support for YUV420BiPlanarFullRange for easy CIImage interoperability. Only works with local capture for now!
+    var optionalPixelFormats: [NSNumber] = [NSNumber.init(value: UInt32(TVIPixelFormat.formatYUV420BiPlanarFullRange.rawValue))]
+
     // MARK: UI Element Outlets and handles
     
     // `TVIVideoView` created from a storyboard
@@ -176,6 +180,7 @@ class ViewController: UIViewController {
         } else {
             // Add renderer to video track for local preview
             localVideoTrack!.addRenderer(self.previewView)
+            localVideoTrack!.addRenderer(self)
 
             logMessage(messageText: "Video track created")
 
@@ -361,5 +366,23 @@ extension ViewController : TVIVideoViewDelegate {
 extension ViewController : TVICameraCapturerDelegate {
     func cameraCapturer(_ capturer: TVICameraCapturer, didStartWith source: TVICameraCaptureSource) {
         self.previewView.shouldMirror = (source == .frontCamera)
+    }
+}
+
+// MARK: TVIVideoRenderer
+extension ViewController : TVIVideoRenderer {
+    func renderFrame(_ frame: TVIVideoFrame) {
+        let imageBuffer = frame.imageBuffer;
+
+        if #available(iOS 9.0, *) {
+            let ciImage = CIImage(cvImageBuffer: imageBuffer, options: nil)
+            print("Created CIImage \(ciImage)")
+        } else {
+            // CIImage with CVImageBuffer initializer not supported.
+        }
+    }
+
+    func updateVideoSize(_ videoSize: CMVideoDimensions, orientation: TVIVideoOrientation) {
+        // Nothing to do, we only care about individual frames.
     }
 }
