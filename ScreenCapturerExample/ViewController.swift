@@ -9,6 +9,7 @@ import TwilioVideo
 import UIKit
 import WebKit
 import AVFoundation
+import ReplayKit
 
 class ViewController : UIViewController {
 
@@ -70,7 +71,10 @@ class ViewController : UIViewController {
     func setupLocalMedia() {
         // Setup screen capturer
         let capturer: TVIVideoCapturer
-        if (useExampleCapturer) {
+        if #available(iOS 11.0, *) {
+            capturer = ExampleReplayKitCapturer.init()
+        } else if (useExampleCapturer) {
+            // Fallback on earlier versions
             capturer = ExampleScreenCapturer.init(aView: self.webView!)
         } else {
             capturer = TVIScreenCapturer.init(view: self.webView!)
