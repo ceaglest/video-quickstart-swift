@@ -11,10 +11,20 @@ import UIKit
 class AppDelegate: UIResponder, UIApplicationDelegate {
 
     var window: UIWindow?
-
+    var previewWindow: UIWindow?
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplicationLaunchOptionsKey: Any]?) -> Bool {
         // Override point for customization after application launch.
+//        let windows = application.windows
+        assert(window == application.windows.first)
+
+//        previewWindow = UIWindow.init(frame: (window?.bounds)!)
+//        previewWindow?.backgroundColor = UIColor.clear
+//        previewWindow?.windowLevel = UIWindowLevelNormal
+//        previewWindow?.makeKeyAndVisible()
+
+//        window?.makeKeyAndVisible()
+
         return true
     }
 

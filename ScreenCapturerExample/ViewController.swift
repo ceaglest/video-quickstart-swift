@@ -18,6 +18,7 @@ class ViewController : UIViewController {
     var screenCapturer: TVIVideoCapturer?
     var webView: WKWebView?
     var webNavigation: WKNavigation?
+    var previewWindow: UIWindow?
 
     // Set this value to 'true' to use ExampleScreenCapturer instead of TVIScreenCapturer.
     let useExampleCapturer = false
@@ -52,6 +53,10 @@ class ViewController : UIViewController {
 
         webView?.frame = self.view.bounds
 
+        if (self.remoteView == nil) {
+            return
+        }
+        
         // Layout the remote video using frame based techniques. It's also possible to do this using autolayout
         if ((remoteView?.hasVideoData)!) {
             let dimensions = remoteView?.videoDimensions
@@ -90,12 +95,21 @@ class ViewController : UIViewController {
         screenCapturer = capturer;
 
         // Setup rendering
-        remoteView = TVIVideoView.init(frame: CGRect.zero, delegate: self)
-        localVideoTrack?.addRenderer(remoteView!)
+        if (true) {
+            previewWindow = UIWindow.init(frame: UIScreen.main.bounds)
+            previewWindow?.backgroundColor = UIColor.clear
+            previewWindow?.windowLevel = UIWindowLevelAlert
+            previewWindow?.rootViewController = PreviewViewController.init(track: localVideoTrack!)
+            previewWindow?.isHidden = false
+            previewWindow?.screen = UIScreen.main
+        } else {
+            remoteView = TVIVideoView.init(frame: CGRect.zero, delegate: self)
+            localVideoTrack?.addRenderer(remoteView!)
 
-        remoteView!.isHidden = true
-        self.view.addSubview(self.remoteView!)
-        self.view.setNeedsLayout()
+            remoteView!.isHidden = true
+            self.view.addSubview(self.remoteView!)
+            self.view.setNeedsLayout()
+        }
     }
 
     func presentError( message: String) {
