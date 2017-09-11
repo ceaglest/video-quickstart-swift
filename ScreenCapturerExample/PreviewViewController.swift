@@ -26,6 +26,8 @@ class PreviewViewController : UIViewController {
     }
     
     override func viewDidLoad() {
+        super.viewDidLoad()
+
         self.view.addSubview(self.remoteView!)
         self.view.setNeedsLayout()
     }

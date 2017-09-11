@@ -101,7 +101,10 @@ class ViewController : UIViewController {
             previewWindow?.windowLevel = UIWindowLevelAlert
             previewWindow?.rootViewController = PreviewViewController.init(track: localVideoTrack!)
             previewWindow?.isHidden = false
+            previewWindow?.isUserInteractionEnabled = false
             previewWindow?.screen = UIScreen.main
+
+            assert(UIApplication.shared.keyWindow != previewWindow)
         } else {
             remoteView = TVIVideoView.init(frame: CGRect.zero, delegate: self)
             localVideoTrack?.addRenderer(remoteView!)
