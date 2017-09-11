@@ -32,7 +32,7 @@ class ExampleReplayKitCapturer: NSObject, TVIVideoCapturer, RPScreenRecorderDele
          */
         let screenSize = UIScreen.main.bounds.size
         let format = TVIVideoFormat()
-        format.pixelFormat = TVIPixelFormat.format32ARGB
+        format.pixelFormat = TVIPixelFormat.format32BGRA
         format.frameRate = UInt(desiredFrameRate)
         format.dimensions = CMVideoDimensions(width: Int32(screenSize.width), height: Int32(screenSize.height))
         supportedFormats = [format]
@@ -81,5 +81,9 @@ class ExampleReplayKitCapturer: NSObject, TVIVideoCapturer, RPScreenRecorderDele
 
             }
         }
+    }
+
+    func screenRecorderDidChangeAvailability(_ screenRecorder: RPScreenRecorder) {
+        print("ScreenRecorder did change availability. isAvailable = \(screenRecorder.isAvailable)")
     }
 }
