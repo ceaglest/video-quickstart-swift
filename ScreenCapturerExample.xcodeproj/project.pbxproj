@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		8A91363B1F662F35008516D0 /* PreviewViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A91363A1F662F35008516D0 /* PreviewViewController.swift */; };
 		8AB81D9B1DED183B0021868E /* ExampleScreenCapturer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AB81D9A1DED183B0021868E /* ExampleScreenCapturer.swift */; };
 		8ABEC2731F5BDCF300CF0018 /* ExampleReplayKitCapturer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8ABEC2721F5BDCF300CF0018 /* ExampleReplayKitCapturer.swift */; };
 		8AC2285F1DECF14D00AF58EA /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AC2285D1DECF14D00AF58EA /* AppDelegate.swift */; };
@@ -17,6 +18,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		8A91363A1F662F35008516D0 /* PreviewViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PreviewViewController.swift; sourceTree = "<group>"; };
 		8AB81D9A1DED183B0021868E /* ExampleScreenCapturer.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = ExampleScreenCapturer.swift; sourceTree = "<group>"; };
 		8ABEC2721F5BDCF300CF0018 /* ExampleReplayKitCapturer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExampleReplayKitCapturer.swift; sourceTree = "<group>"; };
 		8AC2285D1DECF14D00AF58EA /* AppDelegate.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = ScreenCapturerExample/AppDelegate.swift; sourceTree = SOURCE_ROOT; };
@@ -71,6 +73,7 @@
 				8AC2285D1DECF14D00AF58EA /* AppDelegate.swift */,
 				8ABEC2721F5BDCF300CF0018 /* ExampleReplayKitCapturer.swift */,
 				8AB81D9A1DED183B0021868E /* ExampleScreenCapturer.swift */,
+				8A91363A1F662F35008516D0 /* PreviewViewController.swift */,
 				8AC2285E1DECF14D00AF58EA /* ViewController.swift */,
 			);
 			name = Source;
@@ -171,6 +174,7 @@
 				8ABEC2731F5BDCF300CF0018 /* ExampleReplayKitCapturer.swift in Sources */,
 				8AC228601DECF14D00AF58EA /* ViewController.swift in Sources */,
 				8AC2285F1DECF14D00AF58EA /* AppDelegate.swift in Sources */,
+				8A91363B1F662F35008516D0 /* PreviewViewController.swift in Sources */,
 				8AB81D9B1DED183B0021868E /* ExampleScreenCapturer.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
