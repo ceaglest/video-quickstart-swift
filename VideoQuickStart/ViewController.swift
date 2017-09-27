@@ -195,14 +195,20 @@ class ViewController: UIViewController {
             self.camera?.selectSource(.backCameraWide)
 
             // Make the remote video smaller!
-            self.remoteViewWidthConstraint?.constant = -100
-            self.remoteViewHeightConstraint?.constant = -100
+            UIView.animate(withDuration: 2.0, animations: {
+                self.remoteViewWidthConstraint?.constant = -100
+                self.remoteViewHeightConstraint?.constant = -100
+                self.view.layoutIfNeeded()
+            })
         } else {
             self.camera?.selectSource(.frontCamera)
 
             // Make the remote video regular sized!
-            self.remoteViewWidthConstraint?.constant = 0
-            self.remoteViewHeightConstraint?.constant = 0
+            UIView.animate(withDuration: 2.0, animations: {
+                self.remoteViewWidthConstraint?.constant = 0
+                self.remoteViewHeightConstraint?.constant = 0
+                self.view.layoutIfNeeded()
+            })
         }
     }
 
