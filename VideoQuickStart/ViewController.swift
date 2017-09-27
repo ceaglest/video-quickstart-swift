@@ -27,7 +27,11 @@ class ViewController: UIViewController {
     var localAudioTrack: TVILocalAudioTrack?
     var participant: TVIParticipant?
     var remoteView: TVIVideoView?
-    
+    var remoteViewCenterXConstraint: NSLayoutConstraint?
+    var remoteViewCenterYConstraint: NSLayoutConstraint?
+    var remoteViewWidthConstraint: NSLayoutConstraint?
+    var remoteViewHeightConstraint: NSLayoutConstraint?
+
     // MARK: UI Element Outlets and handles
     
     // `TVIVideoView` created from a storyboard
@@ -73,38 +77,38 @@ class ViewController: UIViewController {
         // scaleAspectFit is the default mode when you create `TVIVideoView` programmatically.
         self.remoteView!.contentMode = .scaleAspectFit;
 
-        let centerX = NSLayoutConstraint(item: self.remoteView!,
+        self.remoteViewCenterXConstraint = NSLayoutConstraint(item: self.remoteView!,
                                          attribute: NSLayoutAttribute.centerX,
                                          relatedBy: NSLayoutRelation.equal,
                                          toItem: self.view,
                                          attribute: NSLayoutAttribute.centerX,
                                          multiplier: 1,
                                          constant: 0);
-        self.view.addConstraint(centerX)
-        let centerY = NSLayoutConstraint(item: self.remoteView!,
+        self.view.addConstraint(remoteViewCenterXConstraint!)
+        self.remoteViewCenterYConstraint = NSLayoutConstraint(item: self.remoteView!,
                                          attribute: NSLayoutAttribute.centerY,
                                          relatedBy: NSLayoutRelation.equal,
                                          toItem: self.view,
                                          attribute: NSLayoutAttribute.centerY,
                                          multiplier: 1,
                                          constant: 0);
-        self.view.addConstraint(centerY)
-        let width = NSLayoutConstraint(item: self.remoteView!,
+        self.view.addConstraint(remoteViewCenterYConstraint!)
+        self.remoteViewWidthConstraint = NSLayoutConstraint(item: self.remoteView!,
                                        attribute: NSLayoutAttribute.width,
                                        relatedBy: NSLayoutRelation.equal,
                                        toItem: self.view,
                                        attribute: NSLayoutAttribute.width,
                                        multiplier: 1,
                                        constant: 0);
-        self.view.addConstraint(width)
-        let height = NSLayoutConstraint(item: self.remoteView!,
+        self.view.addConstraint(remoteViewWidthConstraint!)
+        self.remoteViewHeightConstraint = NSLayoutConstraint(item: self.remoteView!,
                                         attribute: NSLayoutAttribute.height,
                                         relatedBy: NSLayoutRelation.equal,
                                         toItem: self.view,
                                         attribute: NSLayoutAttribute.height,
                                         multiplier: 1,
                                         constant: 0);
-        self.view.addConstraint(height)
+        self.view.addConstraint(remoteViewHeightConstraint!)
     }
 
     // MARK: IBActions
@@ -189,8 +193,16 @@ class ViewController: UIViewController {
     func flipCamera() {
         if (self.camera?.source == .frontCamera) {
             self.camera?.selectSource(.backCameraWide)
+
+            // Make the remote video smaller!
+            self.remoteViewWidthConstraint?.constant = -100
+            self.remoteViewHeightConstraint?.constant = -100
         } else {
             self.camera?.selectSource(.frontCamera)
+
+            // Make the remote video regular sized!
+            self.remoteViewWidthConstraint?.constant = 0
+            self.remoteViewHeightConstraint?.constant = 0
         }
     }
 
