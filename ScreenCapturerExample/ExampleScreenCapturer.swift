@@ -139,6 +139,7 @@ class ExampleScreenCapturer: NSObject, TVIVideoCapturer {
              * wide gamut screens.
              */
             if (manageCGContext) {
+                // According to Apple's docs UIGraphicsBeginImageContextWithOptions uses device RGB.
 //                let colorSpace = CGColorSpaceCreateDeviceRGB()
                 guard let colorSpace = CGColorSpace.init(name: CGColorSpace.sRGB),
                     var context = CGContext(data: nil, width: Int(targetSize.width), height: Int(targetSize.height), bitsPerComponent: 8, bytesPerRow: Int(targetSize.width) * 4, space: colorSpace, bitmapInfo: CGImageAlphaInfo.noneSkipFirst.rawValue)
