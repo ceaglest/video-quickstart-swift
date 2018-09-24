@@ -108,6 +108,14 @@ class ViewController : UIViewController {
 
 // MARK: WKNavigationDelegate
 extension ViewController : WKNavigationDelegate {
+    func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        print("WebView:", webView, "started provisional navigation:", navigation)
+    }
+
+    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        print("WebView:", webView, "comitted navigation:", navigation)
+    }
+
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         print("WebView:", webView, "finished navigation:", navigation)
 
