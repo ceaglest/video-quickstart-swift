@@ -117,13 +117,40 @@ class ExampleScreenCapturer: NSObject, TVIVideoCapturer {
 
     func captureView( timer: CADisplayLink ) {
 
+        // Ensure the view is alive for the duration of our capture to make Swift happy.
+        guard let targetView = self.view else { return }
+        // We cant capture a 0x0 image.
+        guard targetView.bounds.size != CGSize.zero else {
+            return
+        }
+
         // This is our main drawing loop. Start by using the UIGraphics APIs to draw the UIView we want to capture.
         var contextImage: UIImage? = nil
         autoreleasepool {
-            UIGraphicsBeginImageContextWithOptions((self.view?.bounds.size)!, true, captureScaleFactor)
-            self.view?.drawHierarchy(in: (self.view?.bounds)!, afterScreenUpdates: false)
-            contextImage = UIGraphicsGetImageFromCurrentImageContext()
-            UIGraphicsEndImageContext()
+            /*
+             * We will use UIGraphicsImageRenderer for more control over color management when rendering a UIView.
+             * On iOS 12, UIGraphicsBeginImageContextWithOptions performs an expensive color conversion on devices with
+             * wide gamut screens.
+             */
+            if #available(iOS 12.0, *) {
+                let rendererFormat = UIGraphicsImageRendererFormat.init()
+                rendererFormat.opaque = true
+                rendererFormat.scale = captureScaleFactor
+                // WebRTC expects content to be rec.709, and does not properly handle video in other color spaces.
+                rendererFormat.preferredRange = UIGraphicsImageRendererFormat.Range.standard
+                // iOS 10-11 API...
+//                rendererFormat.prefersExtendedRange = false
+                let renderer = UIGraphicsImageRenderer.init(bounds: (self.view?.bounds)!, format: rendererFormat)
+                contextImage = renderer.image(actions: { (UIGraphicsImageRendererContext) in
+                    // No special drawing to do, we just want an opaque image of the UIView contents.
+                    targetView.drawHierarchy(in: targetView.bounds, afterScreenUpdates: false)
+                });
+            } else {
+                UIGraphicsBeginImageContextWithOptions((self.view?.bounds.size)!, true, captureScaleFactor)
+                targetView.drawHierarchy(in: (self.view?.bounds)!, afterScreenUpdates: false)
+                contextImage = UIGraphicsGetImageFromCurrentImageContext()
+                UIGraphicsEndImageContext()
+            }
         }
 
         /*
