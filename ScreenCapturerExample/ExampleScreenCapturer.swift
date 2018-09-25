@@ -44,30 +44,34 @@ class ExampleScreenCapturer: NSObject, TVIVideoCapturer {
     }
 
     func startCapture(_ format: TVIVideoFormat, consumer: TVIVideoCaptureConsumer) {
-        if (view == nil || view?.superview == nil) {
-            print("Can't capture from a nil view, or one with no superview:", view as Any)
-            consumer.captureDidStart(false)
-            return
+        DispatchQueue.main.async {
+            if (self.view == nil || self.view?.superview == nil) {
+                print("Can't capture from a nil view, or one with no superview:", self.view as Any)
+                consumer.captureDidStart(false)
+                return
+            }
+
+            if #available(iOS 10.0, *) {
+                print("Start capturing. UIView.layer.contentsFormat was", self.view?.layer.contentsFormat as Any)
+            } else {
+                print("Start capturing.")
+            }
+
+            self.startTimer()
+            self.registerNotificationObservers()
+
+            self.captureConsumer = consumer;
+            consumer.captureDidStart(true)
         }
-
-        if #available(iOS 10.0, *) {
-            print("Start capturing. UIView.layer.contentsFormat was", view?.layer.contentsFormat as Any)
-        } else {
-            print("Start capturing.")
-        }
-
-        startTimer()
-        registerNotificationObservers()
-
-        captureConsumer = consumer;
-        captureConsumer?.captureDidStart(true)
     }
 
     func stopCapture() {
         print("Stop capturing.")
 
-        unregisterNotificationObservers()
-        invalidateTimer()
+        DispatchQueue.main.async {
+            self.unregisterNotificationObservers()
+            self.invalidateTimer()
+        }
     }
 
     func startTimer() {
