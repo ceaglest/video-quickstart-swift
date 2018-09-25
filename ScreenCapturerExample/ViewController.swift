@@ -19,7 +19,7 @@ class ViewController : UIViewController {
     var webNavigation: WKNavigation?
 
     // Set this value to 'true' to use ExampleScreenCapturer instead of TVIScreenCapturer.
-    let useExampleCapturer = false
+    let useExampleCapturer = true
 
     override func viewDidLoad() {
         super.viewDidLoad()

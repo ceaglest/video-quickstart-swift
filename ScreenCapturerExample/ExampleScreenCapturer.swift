@@ -5,7 +5,9 @@
 //  Copyright © 2016-2017 Twilio, Inc. All rights reserved.
 //
 
+import MetalKit
 import TwilioVideo
+import WebKit
 
 @available(iOS 10.0, *)
 class ExampleScreenCapturer: NSObject, TVIVideoCapturer {
@@ -21,17 +23,25 @@ class ExampleScreenCapturer: NSObject, TVIVideoCapturer {
     var didEnterBackgroundObserver: NSObjectProtocol?
 
     // Constants
-    let displayLinkFrameRate = 60
     let desiredFrameRate = 5
     let captureScaleFactor: CGFloat = 1.0
 
     enum ViewRenderingMode {
+        // Generic, create and manage a CGContext to draw a UIView.
         case cgcontext
+        // If the CALayer has CGImage contents, then snapshot it.
+        case calayercontents
+        // If the view is an MTKView, then attempt to download the texture from the drawable.
+        case mtkview
+        // Generic, use UIGraphicsImageContext to draw standard range contents.
         case uigraphicsimagecontext
+        // Generic, use UIGraphicsImageRenderer to draw a UIView in sRGB.
         case uigraphicsimagerenderer
+        // If the view is a WKWebView, then use snapshotting APIs to get the contents.
+        case wkwebview
     }
 
-    let renderingMode: ViewRenderingMode = .cgcontext;
+    let renderingMode: ViewRenderingMode = .wkwebview;
 
     init(aView: UIView) {
         captureConsumer = nil
@@ -59,11 +69,7 @@ class ExampleScreenCapturer: NSObject, TVIVideoCapturer {
                 return
             }
 
-            if #available(iOS 10.0, *) {
-                print("Start capturing. UIView.layer.contentsFormat was", self.view?.layer.contentsFormat as Any)
-            } else {
-                print("Start capturing.")
-            }
+            print("Start capturing. UIView.layer.contentsFormat was", self.view?.layer.contentsFormat as Any)
 
             self.startTimer()
             self.registerNotificationObservers()
@@ -88,13 +94,7 @@ class ExampleScreenCapturer: NSObject, TVIVideoCapturer {
         // Use a CADisplayLink timer so that our drawing is synchronized to the display vsync.
         displayTimer = CADisplayLink(target: self, selector: #selector(ExampleScreenCapturer.captureView))
 
-        // On iOS 10.0+ use preferredFramesPerSecond, otherwise fallback to intervals assuming a 60 hz display
-        if #available(iOS 10.0, *) {
-            displayTimer?.preferredFramesPerSecond = desiredFrameRate
-        } else {
-            displayTimer?.frameInterval = displayLinkFrameRate / desiredFrameRate
-        };
-
+        displayTimer?.preferredFramesPerSecond = desiredFrameRate
         displayTimer?.add(to: RunLoop.main, forMode: RunLoopMode.commonModes)
         displayTimer?.isPaused = UIApplication.shared.applicationState == UIApplicationState.background
     }
@@ -132,7 +132,6 @@ class ExampleScreenCapturer: NSObject, TVIVideoCapturer {
         didEnterBackgroundObserver = nil
     }
 
-    @available(iOS 10.0, *)
     func captureView( timer: CADisplayLink ) {
 
         // Ensure the view is alive for the duration of our capture to make Swift happy.
@@ -149,13 +148,16 @@ class ExampleScreenCapturer: NSObject, TVIVideoCapturer {
         var orientation: TVIVideoOrientation = TVIVideoOrientation.up
 
         autoreleasepool {
-            /*
-             * We will use UIGraphicsImageRenderer for more control over color management when rendering a UIView.
-             * On iOS 12, UIGraphicsBeginImageContextWithOptions performs an expensive color conversion on devices with
-             * wide gamut screens.
-             */
-
             switch renderingMode {
+            case .calayercontents:
+                if let contents = targetView.layer.contents {
+                    let contentsImage = contents as! CGImage
+                    pixelFormat = contentsImage.bitmapInfo.rawValue == CGImageByteOrderInfo.orderDefault.rawValue
+                        ? TVIPixelFormat.format32ARGB : TVIPixelFormat.format32BGRA
+                    contextImage = UIImage(cgImage: contents as! CGImage)
+                } else {
+                    return
+                }
             case .cgcontext:
                 // According to Apple's docs UIGraphicsBeginImageContextWithOptions uses device RGB.
                 //                let colorSpace = CGColorSpaceCreateDeviceRGB()
@@ -172,21 +174,22 @@ class ExampleScreenCapturer: NSObject, TVIVideoCapturer {
                 orientation = TVIVideoOrientation.down
                 UIGraphicsPushContext(context); defer { UIGraphicsPopContext() }
 
-                if let contents = targetView.layer.contents {
-                    contextImage = UIImage(cgImage: contents as! CGImage)
-                } else {
-                    targetView.drawHierarchy(in: targetView.bounds, afterScreenUpdates: true)
-                    guard let imageRef = context.makeImage()
-                        else { return }
+                targetView.drawHierarchy(in: targetView.bounds, afterScreenUpdates: true)
+                guard let imageRef = context.makeImage()
+                else { return }
 
-                    contextImage = UIImage(cgImage: imageRef)
-                }
+                contextImage = UIImage(cgImage: imageRef)
             case .uigraphicsimagecontext:
                 UIGraphicsBeginImageContextWithOptions((self.view?.bounds.size)!, true, captureScaleFactor)
                 targetView.drawHierarchy(in: (self.view?.bounds)!, afterScreenUpdates: false)
                 contextImage = UIGraphicsGetImageFromCurrentImageContext()
                 UIGraphicsEndImageContext()
             case .uigraphicsimagerenderer:
+                /*
+                 * We will use UIGraphicsImageRenderer for more control over color management when rendering a UIView.
+                 * On iOS 12, UIGraphicsBeginImageContextWithOptions performs an expensive color conversion on devices with
+                 * wide gamut screens.
+                 */
                 if #available(iOS 12.0, *) {
                     let rendererFormat = UIGraphicsImageRendererFormat.init()
                     rendererFormat.opaque = true
@@ -200,19 +203,42 @@ class ExampleScreenCapturer: NSObject, TVIVideoCapturer {
                         targetView.drawHierarchy(in: targetView.bounds, afterScreenUpdates: false)
                     })
                 }
+            case .mtkview:
+                let metalKitView = targetView as! MTKView
+            case .wkwebview:
+                if #available(iOS 11.0, *) {
+                    let webView = targetView as! WKWebView
+                    let configuration = WKSnapshotConfiguration()
+                    // Configure a width appropriate for our scale factor.
+                    configuration.snapshotWidth = NSNumber(value: Double(webView.bounds.width * captureScaleFactor))
+                    webView.takeSnapshot(with:configuration, completionHandler: { (image, error) in
+                        if let deliverableImage = image {
+                            // TODO: Neither BGRA or ARGB are correct, is this ABGR?
+                            self.deliverCapturedImage(image: deliverableImage,
+                                                      format: TVIPixelFormat.format32BGRA,
+                                                      orientation: orientation,
+                                                      timestamp: timer.timestamp)
+                        }
+                    })
+                }
             }
         }
 
+        if let deliverableImage = contextImage {
+            deliverCapturedImage(image: deliverableImage, format: pixelFormat, orientation: orientation, timestamp: timer.timestamp)
+        }
+    }
+
+    func deliverCapturedImage(image: UIImage, format: TVIPixelFormat, orientation: TVIVideoOrientation, timestamp: CFTimeInterval) {
         /*
          * Make a copy of the UIImage's underlying data. We do this by getting the CGImage, and its CGDataProvider.
          * Note that this technique is inefficient because it causes an extra malloc / copy to occur for every frame.
          * For a more performant solution, provide a pool of buffers and use them to back a CGBitmapContext.
          */
-        let image: CGImage? = contextImage?.cgImage
+        let image: CGImage? = image.cgImage
         let dataProvider: CGDataProvider? = image?.dataProvider
         let data: CFData? = dataProvider?.data
         let baseAddress = CFDataGetBytePtr(data!)
-        contextImage = nil
 
         /*
          * We own the copied CFData which will back the CVPixelBuffer, thus the data's lifetime is bound to the buffer.
@@ -223,20 +249,20 @@ class ExampleScreenCapturer: NSObject, TVIVideoCapturer {
         let status = CVPixelBufferCreateWithBytes(nil,
                                                   (image?.width)!,
                                                   (image?.height)!,
-                                                  pixelFormat.rawValue,
+                                                  format.rawValue,
                                                   UnsafeMutableRawPointer( mutating: baseAddress!),
                                                   (image?.bytesPerRow)!,
                                                   { releaseContext, baseAddress in
                                                     let contextData = Unmanaged<CFData>.fromOpaque(releaseContext!)
                                                     contextData.release()
-                                                  },
+        },
                                                   unmanagedData.toOpaque(),
                                                   nil,
                                                   &pixelBuffer)
 
         if let buffer = pixelBuffer {
-            // Deliver a frame to the consumer. Images drawn by UIGraphics do not need any rotation tags.
-            let frame = TVIVideoFrame(timeInterval: timer.timestamp,
+            // Deliver a frame to the consumer.
+            let frame = TVIVideoFrame(timeInterval: timestamp,
                                       buffer: buffer,
                                       orientation: orientation)
 
