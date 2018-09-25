@@ -71,7 +71,11 @@ class ViewController : UIViewController {
         // Setup screen capturer
         let capturer: TVIVideoCapturer
         if (useExampleCapturer) {
-            capturer = ExampleScreenCapturer.init(aView: self.webView!)
+            if #available(iOS 10.0, *) {
+                capturer = ExampleScreenCapturer.init(aView: self.webView!)
+            } else {
+                capturer = TVIScreenCapturer.init(view: self.webView!)
+            }
         } else {
             capturer = TVIScreenCapturer.init(view: self.webView!)
         }

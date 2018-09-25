@@ -7,6 +7,7 @@
 
 import TwilioVideo
 
+@available(iOS 10.0, *)
 class ExampleScreenCapturer: NSObject, TVIVideoCapturer {
 
     public var isScreencast: Bool = true
@@ -23,7 +24,14 @@ class ExampleScreenCapturer: NSObject, TVIVideoCapturer {
     let displayLinkFrameRate = 60
     let desiredFrameRate = 5
     let captureScaleFactor: CGFloat = 1.0
-    let manageCGContext: Bool = true;
+
+    enum ViewRenderingMode {
+        case cgcontext
+        case uigraphicsimagecontext
+        case uigraphicsimagerenderer
+    }
+
+    let renderingMode: ViewRenderingMode = .cgcontext;
 
     init(aView: UIView) {
         captureConsumer = nil
@@ -124,6 +132,7 @@ class ExampleScreenCapturer: NSObject, TVIVideoCapturer {
         didEnterBackgroundObserver = nil
     }
 
+    @available(iOS 10.0, *)
     func captureView( timer: CADisplayLink ) {
 
         // Ensure the view is alive for the duration of our capture to make Swift happy.
@@ -145,47 +154,52 @@ class ExampleScreenCapturer: NSObject, TVIVideoCapturer {
              * On iOS 12, UIGraphicsBeginImageContextWithOptions performs an expensive color conversion on devices with
              * wide gamut screens.
              */
-            if (manageCGContext) {
+
+            switch renderingMode {
+            case .cgcontext:
                 // According to Apple's docs UIGraphicsBeginImageContextWithOptions uses device RGB.
-//                let colorSpace = CGColorSpaceCreateDeviceRGB()
-                guard let colorSpace = CGColorSpace.init(name: CGColorSpace.sRGB),
-                    var context = CGContext(data: nil, width: Int(targetSize.width), height: Int(targetSize.height), bitsPerComponent: 8, bytesPerRow: Int(targetSize.width) * 4, space: colorSpace, bitmapInfo: CGImageAlphaInfo.noneSkipFirst.rawValue)
-                else {
-                    return
+                //                let colorSpace = CGColorSpaceCreateDeviceRGB()
+                guard let colorSpace = CGColorSpace.init(name: CGColorSpace.genericRGBLinear),
+                    var context = CGContext(data: nil, width: Int(targetSize.width), height: Int(targetSize.height), bitsPerComponent: 8, bytesPerRow: Int(targetSize.width) * 4, space: colorSpace, bitmapInfo: (CGImageAlphaInfo.noneSkipFirst.rawValue | CGImageByteOrderInfo.order32Little.rawValue))
+                    else {
+                        return
                 }
 
                 // Prepare CGContext to be used with UIKit, matching the top to bottom y-axis coordinate system.
-//                context.scaleBy(x: -1, y: 1)
-                pixelFormat = TVIPixelFormat.format32ARGB
+                //                context.scaleBy(x: -1, y: 1)
+                //                pixelFormat = TVIPixelFormat.format32ARGB
                 // Not quite...
                 orientation = TVIVideoOrientation.down
                 UIGraphicsPushContext(context); defer { UIGraphicsPopContext() }
 
-                // No special drawing to do, we just want an opaque image of the UIView contents.
-                targetView.drawHierarchy(in: targetView.bounds, afterScreenUpdates: true)
+                if let contents = targetView.layer.contents {
+                    contextImage = UIImage(cgImage: contents as! CGImage)
+                } else {
+                    targetView.drawHierarchy(in: targetView.bounds, afterScreenUpdates: true)
+                    guard let imageRef = context.makeImage()
+                        else { return }
 
-                guard let imageRef = context.makeImage()
-                else { return }
-
-                contextImage = UIImage(cgImage: imageRef)
-            } else if #available(iOS 12.0, *) {
-                let rendererFormat = UIGraphicsImageRendererFormat.init()
-                rendererFormat.opaque = true
-                rendererFormat.scale = captureScaleFactor
-                // WebRTC expects content to be rec.709, and does not properly handle video in other color spaces.
-                rendererFormat.preferredRange = UIGraphicsImageRendererFormat.Range.standard
-//                let rendererFormat = UIGraphicsImageRendererFormat.default()
-                let renderer = UIGraphicsImageRenderer.init(bounds: targetView.bounds, format: rendererFormat)
-
-                contextImage = renderer.image(actions: { (UIGraphicsImageRendererContext) in
-                    // No special drawing to do, we just want an opaque image of the UIView contents.
-                    targetView.drawHierarchy(in: targetView.bounds, afterScreenUpdates: false)
-                });
-            } else {
+                    contextImage = UIImage(cgImage: imageRef)
+                }
+            case .uigraphicsimagecontext:
                 UIGraphicsBeginImageContextWithOptions((self.view?.bounds.size)!, true, captureScaleFactor)
                 targetView.drawHierarchy(in: (self.view?.bounds)!, afterScreenUpdates: false)
                 contextImage = UIGraphicsGetImageFromCurrentImageContext()
                 UIGraphicsEndImageContext()
+            case .uigraphicsimagerenderer:
+                if #available(iOS 12.0, *) {
+                    let rendererFormat = UIGraphicsImageRendererFormat.init()
+                    rendererFormat.opaque = true
+                    rendererFormat.scale = captureScaleFactor
+                    // WebRTC expects content to be rec.709, and does not properly handle video in other color spaces.
+                    rendererFormat.preferredRange = UIGraphicsImageRendererFormat.Range.standard
+                    let renderer = UIGraphicsImageRenderer.init(bounds: targetView.bounds, format: rendererFormat)
+
+                    contextImage = renderer.image(actions: { (UIGraphicsImageRendererContext) in
+                        // No special drawing to do, we just want an opaque image of the UIView contents.
+                        targetView.drawHierarchy(in: targetView.bounds, afterScreenUpdates: false)
+                    })
+                }
             }
         }
 
