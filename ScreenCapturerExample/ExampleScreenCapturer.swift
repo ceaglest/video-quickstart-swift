@@ -136,6 +136,9 @@ class ExampleScreenCapturer: NSObject, TVIVideoCapturer {
 
         // This is our main drawing loop. Start by using the UIGraphics APIs to draw the UIView we want to capture.
         var contextImage: UIImage? = nil
+        var pixelFormat: TVIPixelFormat = TVIPixelFormat.format32BGRA
+        var orientation: TVIVideoOrientation = TVIVideoOrientation.up
+
         autoreleasepool {
             /*
              * We will use UIGraphicsImageRenderer for more control over color management when rendering a UIView.
@@ -152,7 +155,10 @@ class ExampleScreenCapturer: NSObject, TVIVideoCapturer {
                 }
 
                 // Prepare CGContext to be used with UIKit, matching the top to bottom y-axis coordinate system.
-//                context.scaleBy(x: 1, y: -1)
+//                context.scaleBy(x: -1, y: 1)
+                pixelFormat = TVIPixelFormat.format32ARGB
+                // Not quite...
+                orientation = TVIVideoOrientation.down
                 UIGraphicsPushContext(context); defer { UIGraphicsPopContext() }
 
                 // No special drawing to do, we just want an opaque image of the UIView contents.
@@ -203,7 +209,7 @@ class ExampleScreenCapturer: NSObject, TVIVideoCapturer {
         let status = CVPixelBufferCreateWithBytes(nil,
                                                   (image?.width)!,
                                                   (image?.height)!,
-                                                  TVIPixelFormat.format32BGRA.rawValue,
+                                                  pixelFormat.rawValue,
                                                   UnsafeMutableRawPointer( mutating: baseAddress!),
                                                   (image?.bytesPerRow)!,
                                                   { releaseContext, baseAddress in
@@ -218,7 +224,7 @@ class ExampleScreenCapturer: NSObject, TVIVideoCapturer {
             // Deliver a frame to the consumer. Images drawn by UIGraphics do not need any rotation tags.
             let frame = TVIVideoFrame(timeInterval: timer.timestamp,
                                       buffer: buffer,
-                                      orientation: TVIVideoOrientation.up)
+                                      orientation: orientation)
 
             // The consumer retains the CVPixelBuffer and will own it as the buffer flows through the video pipeline.
             captureConsumer?.consumeCapturedFrame(frame!)
