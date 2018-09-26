@@ -5,35 +5,38 @@
 //  Copyright © 2016-2017 Twilio, Inc. All rights reserved.
 //
 
+import AVFoundation
+import MetalKit
 import TwilioVideo
 import UIKit
 import WebKit
-import AVFoundation
 
 class ViewController : UIViewController {
 
-    var localVideoTrack: TVILocalVideoTrack?
-    var remoteView: TVIVideoView?
     var screenCapturer: TVIVideoCapturer?
+    var screenCapturerTrack: TVILocalVideoTrack?
+    var remoteView: TVIVideoView?
+
+    // Web content.
     var webView: WKWebView?
     var webNavigation: WKNavigation?
 
+    // Camera content.
+    var cameraVideoTrack: TVILocalVideoTrack?
+    var metalView: TVIVideoView?
+
     // Set this value to 'true' to use ExampleScreenCapturer instead of TVIScreenCapturer.
     let useExampleCapturer = true
+    let useMtkView = false
 
     override func viewDidLoad() {
         super.viewDidLoad()
 
-        // Setup a WKWebView, and request Twilio's website
-        webView = WKWebView.init(frame: view.frame)
-        webView?.navigationDelegate = self
-        webView?.translatesAutoresizingMaskIntoConstraints = false
-        webView?.allowsBackForwardNavigationGestures = true
-        self.view.addSubview(webView!)
-
-        let requestURL: URL = URL(string: "https://twilio.com")!
-        let request = URLRequest.init(url: requestURL)
-        webNavigation = webView?.load(request)
+        if (useMtkView) {
+            setupMetalCamera()
+        } else {
+            setupWebView()
+        }
 
         setupLocalMedia()
     }
@@ -50,6 +53,7 @@ class ViewController : UIViewController {
         super.viewWillLayoutSubviews()
 
         webView?.frame = self.view.bounds
+        metalView?.frame = self.view.bounds
 
         // Layout the remote video using frame based techniques. It's also possible to do this using autolayout
         if ((remoteView?.hasVideoData)!) {
@@ -70,19 +74,27 @@ class ViewController : UIViewController {
     func setupLocalMedia() {
         // Setup screen capturer
         let capturer: TVIVideoCapturer
-        if (useExampleCapturer) {
-            if #available(iOS 10.0, *) {
-                capturer = ExampleScreenCapturer.init(aView: self.webView!)
-            } else {
-                capturer = TVIScreenCapturer.init(view: self.webView!)
-            }
+        let targetView: UIView
+
+        if (useMtkView) {
+            targetView = self.metalView!.subviews.first?.subviews.first as! MTKView
         } else {
-            capturer = TVIScreenCapturer.init(view: self.webView!)
+            targetView = self.webView!
         }
 
-        localVideoTrack = TVILocalVideoTrack.init(capturer: capturer, enabled: true, constraints: nil, name: "Screen")
+        if (useExampleCapturer) {
+            if #available(iOS 10.0, *) {
+                capturer = ExampleScreenCapturer.init(aView: targetView)
+            } else {
+                capturer = TVIScreenCapturer.init(view: targetView)
+            }
+        } else {
+            capturer = TVIScreenCapturer.init(view: targetView)
+        }
 
-        if (localVideoTrack == nil) {
+        screenCapturerTrack = TVILocalVideoTrack.init(capturer: capturer, enabled: true, constraints: nil, name: "Screen")
+
+        if (screenCapturerTrack == nil) {
             presentError(message: "Failed to add screen capturer track!")
             return;
         }
@@ -91,11 +103,46 @@ class ViewController : UIViewController {
 
         // Setup rendering
         remoteView = TVIVideoView.init(frame: CGRect.zero, delegate: self)
-        localVideoTrack?.addRenderer(remoteView!)
+        screenCapturerTrack?.addRenderer(remoteView!)
 
         remoteView!.isHidden = true
         self.view.addSubview(self.remoteView!)
         self.view.setNeedsLayout()
+    }
+
+    func setupWebView() {
+        // Setup a WKWebView, and request Twilio's website
+        webView = WKWebView.init(frame: view.frame)
+        webView?.navigationDelegate = self
+        webView?.translatesAutoresizingMaskIntoConstraints = false
+        webView?.allowsBackForwardNavigationGestures = true
+        self.view.addSubview(webView!)
+
+        let requestURL: URL = URL(string: "https://twilio.com")!
+        let request = URLRequest.init(url: requestURL)
+        webNavigation = webView?.load(request)
+    }
+
+    func setupMetalCamera() {
+        guard TVICameraCapturer.isSourceAvailable(TVICameraCaptureSource.frontCamera)
+            else { return };
+
+        // We will render the camera using TVICameraPreviewView.
+        if let capturer = TVICameraCapturer(source: .frontCamera, delegate: nil, enablePreview: false),
+            let videoTrack = TVILocalVideoTrack.init(capturer: capturer) {
+            cameraVideoTrack = videoTrack
+
+            if let renderer = TVIVideoView(frame: view.bounds, delegate: nil, renderingType: TVIVideoRenderingType.metal) {
+                cameraVideoTrack?.addRenderer(renderer)
+                metalView = renderer
+                renderer.isHidden = false
+                renderer.shouldMirror = true
+                self.view.addSubview(renderer)
+                self.view.setNeedsLayout()
+            }
+        } else {
+            print("Failed to create video track!")
+        }
     }
 
     func presentError( message: String) {

@@ -33,11 +33,11 @@ class ExampleScreenCapturer: NSObject, TVIVideoCapturer {
         case calayercontents
         // If the view is an MTKView, then attempt to download the texture from the drawable.
         case mtkview
-        // Generic, use UIGraphicsImageContext to draw standard range contents.
+        // Generic, use UIGraphicsImageContext to draw standard range contents in Device RGB.
         case uigraphicsimagecontext
         // Generic, use UIGraphicsImageRenderer to draw a UIView in sRGB.
         case uigraphicsimagerenderer
-        // If the view is a WKWebView, then use snapshotting APIs to get the contents.
+        // If the view is a WKWebView, use snapshotting APIs to draw the contents.
         case wkwebview
     }
 
@@ -170,7 +170,7 @@ class ExampleScreenCapturer: NSObject, TVIVideoCapturer {
                 // Prepare CGContext to be used with UIKit, matching the top to bottom y-axis coordinate system.
                 //                context.scaleBy(x: -1, y: 1)
                 //                pixelFormat = TVIPixelFormat.format32ARGB
-                // Not quite...
+                // Not quite... this is mirrored.
                 orientation = TVIVideoOrientation.down
                 UIGraphicsPushContext(context); defer { UIGraphicsPopContext() }
 
@@ -180,6 +180,7 @@ class ExampleScreenCapturer: NSObject, TVIVideoCapturer {
 
                 contextImage = UIImage(cgImage: imageRef)
             case .uigraphicsimagecontext:
+                // Our classic implementation, using the now discouraged UIGraphics APIs.
                 UIGraphicsBeginImageContextWithOptions((self.view?.bounds.size)!, true, captureScaleFactor)
                 targetView.drawHierarchy(in: (self.view?.bounds)!, afterScreenUpdates: false)
                 contextImage = UIGraphicsGetImageFromCurrentImageContext()
@@ -204,7 +205,12 @@ class ExampleScreenCapturer: NSObject, TVIVideoCapturer {
                     })
                 }
             case .mtkview:
+                // Unfortunately, this is not the correct place to access currentDrawable. A capturer would need to be
+                // more integrated.
                 let metalKitView = targetView as! MTKView
+                if let drawable = metalKitView.currentDrawable {
+                    captureFrom(drawable: drawable, timestamp: timer.timestamp)
+                }
             case .wkwebview:
                 if #available(iOS 11.0, *) {
                     let webView = targetView as! WKWebView
@@ -226,6 +232,49 @@ class ExampleScreenCapturer: NSObject, TVIVideoCapturer {
 
         if let deliverableImage = contextImage {
             deliverCapturedImage(image: deliverableImage, format: pixelFormat, orientation: orientation, timestamp: timer.timestamp)
+        }
+    }
+
+    func captureFrom(drawable: CAMetalDrawable, timestamp: CFTimeInterval) {
+        let texture = drawable.texture
+
+        // There are only so many pixel formats that we can handle right now.
+        let pixelFormat = texture.pixelFormat
+        switch pixelFormat {
+        case .bgra8Unorm:
+            // Create a CVPixelBuffer and copy the bytes into it.
+            var buffer: CVPixelBuffer?
+            let status = CVPixelBufferCreate(nil, texture.width, texture.height, kCVPixelFormatType_32BGRA, nil, &buffer)
+
+            if let pixelBuffer = buffer {
+                // Copy the drawable into our buffer.
+                CVPixelBufferLockBaseAddress(pixelBuffer, CVPixelBufferLockFlags(rawValue: 0))
+                let baseAddress = CVPixelBufferGetBaseAddress(pixelBuffer)
+
+                var region = MTLRegion.init()
+                region.origin = MTLOrigin(x: 0, y: 0, z: 0)
+                region.size = MTLSize(width: texture.width, height: texture.height, depth: texture.depth)
+
+                texture.getBytes(baseAddress!,
+                                 bytesPerRow: CVPixelBufferGetBytesPerRow(pixelBuffer),
+                                 from: region, mipmapLevel: 0)
+
+                CVPixelBufferUnlockBaseAddress(pixelBuffer, CVPixelBufferLockFlags(rawValue: 0))
+
+                // Deliver a frame to the consumer.
+                let frame = TVIVideoFrame(timeInterval: timestamp,
+                                          buffer: pixelBuffer,
+                                          orientation: TVIVideoOrientation.up)
+
+                // The consumer retains the CVPixelBuffer and will own it as the buffer flows through the video pipeline.
+                captureConsumer?.consumeCapturedFrame(frame!)
+            } else {
+                print("CVPixelBuffer creation failed with status: ", status, ".")
+            }
+        default:
+            // Unsupported.
+            print("Unsupported format :", pixelFormat, "")
+            break
         }
     }
 
