@@ -24,7 +24,14 @@ class ViewController: UIViewController {
     var camera: TVICameraCapturer?
     var localVideoTrack: TVILocalVideoTrack!
     var localAudioTrack: TVILocalAudioTrack!
-    var audioDevice: TVIAudioDevice = ExampleCoreAudioDevice()
+    var audioDevice: ExampleAVAudioEngineDevice = ExampleAVAudioEngineDevice()
+
+    var videoPlayer: AVPlayer? = nil
+    var videoPlayerSource: ExampleAVPlayerSource? = nil
+    var videoPlayerView: ExampleAVPlayerView? = nil
+
+    static let kRemoteContentURL = URL(string: "https://s3-us-west-1.amazonaws.com/avplayervideo/What+Is+Cloud+Communications.mov")!
+
 
     // MARK: UI Element Outlets and handles
 
@@ -61,6 +68,10 @@ class ViewController: UIViewController {
         audioDeviceButton.setTitle("CoreAudio Device", for: .normal)
 
         prepareLocalMedia()
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
     }
 
     override func didReceiveMemoryWarning() {
@@ -135,7 +146,7 @@ class ViewController: UIViewController {
          */
         self.unprepareLocalMedia()
 
-        self.audioDevice = ExampleCoreAudioDevice()
+        self.audioDevice = ExampleAVAudioEngineDevice()
         self.audioDeviceButton.setTitle(ViewController.coreAudioDeviceText, for: .normal)
         self.logMessage(messageText: ViewController.coreAudioDeviceText + " Selected")
 
@@ -217,6 +228,7 @@ class ViewController: UIViewController {
             room.disconnect()
             sender.isEnabled = false
         }
+        self.stopVideoPlayer()
     }
 
 
@@ -230,6 +242,10 @@ class ViewController: UIViewController {
 
     override func viewWillLayoutSubviews() {
         super.viewWillLayoutSubviews()
+
+        if let playerView = videoPlayerView {
+            playerView.frame = CGRect(origin: CGPoint.zero, size: self.view.bounds.size)
+        }
 
         // Layout the preview view.
         if let previewView = self.camera?.previewView {
@@ -427,6 +443,62 @@ class ViewController: UIViewController {
             remoteView.contentMode = .scaleAspectFit
         }
     }
+
+
+    func startVideoPlayer() {
+        if let player = self.videoPlayer {
+            player.play()
+            return
+        }
+
+        let playerItem = AVPlayerItem(url: ViewController.kRemoteContentURL)
+        let player = AVPlayer(playerItem: playerItem)
+        videoPlayer = player
+
+        let playerView = ExampleAVPlayerView(frame: CGRect.zero, player: player)
+        videoPlayerView = playerView
+
+        // We will rely on frame based layout to size and position `self.videoPlayerView`.
+        self.view.insertSubview(playerView, at: 0)
+        self.view.setNeedsLayout()
+
+        // TODO: Add KVO observer instead?
+        player.play()
+        player.volume = 0.0
+
+        // Configure our video capturer to receive video samples from the AVPlayerItem.
+        videoPlayerSource = ExampleAVPlayerSource(item: playerItem)
+
+        // Configure our audio capturer to receive audio samples from the AVPlayerItem.
+        let audioMix = AVMutableAudioMix()
+        let itemAsset = playerItem.asset
+        print("Created asset with tracks: ", itemAsset.tracks as Any)
+
+        if let assetAudioTrack = itemAsset.tracks(withMediaType: AVMediaType.audio).first {
+            let inputParameters = AVMutableAudioMixInputParameters(track: assetAudioTrack)
+
+            var tap: Unmanaged<MTAudioProcessingTap>?
+
+            // TODO: Memory management of the MTAudioProcessingTap.
+            //inputParameters.audioTapProcessor = ExampleAVPlayerAudioTap.mediaToolboxAudioProcessingTapCreate(audioTap: processor)
+
+            tap = audioDevice.setupTap()
+            inputParameters.audioTapProcessor =  tap!.takeUnretainedValue()
+            audioMix.inputParameters = [inputParameters]
+            playerItem.audioMix = audioMix
+        } else {
+            // Abort, retry, fail?
+        }
+    }
+
+    func stopVideoPlayer() {
+        videoPlayer?.pause()
+        videoPlayer = nil
+
+        // Remove player UI
+        videoPlayerView?.removeFromSuperview()
+        videoPlayerView = nil
+    }
 }
 
 // MARK: UITextFieldDelegate
@@ -443,11 +515,15 @@ extension ViewController : TVIRoomDelegate {
 
         // Listen to events from existing `TVIRemoteParticipant`s
         for remoteParticipant in room.remoteParticipants {
-            remoteParticipant.delegate = self
+            //remoteParticipant.delegate = self
         }
 
         let connectMessage = "Connected to room \(room.name) as \(room.localParticipant?.identity ?? "")."
         logMessage(messageText: connectMessage)
+
+        if videoPlayer == nil {
+            startVideoPlayer()
+        }
     }
 
     func room(_ room: TVIRoom, didDisconnectWithError error: Error?) {
@@ -471,7 +547,7 @@ extension ViewController : TVIRoomDelegate {
     }
 
     func room(_ room: TVIRoom, participantDidConnect participant: TVIRemoteParticipant) {
-        participant.delegate = self
+        //participant.delegate = self
 
         logMessage(messageText: "Participant \(participant.identity) connected with \(participant.remoteAudioTracks.count) audio and \(participant.remoteVideoTracks.count) video tracks")
     }
@@ -609,4 +685,107 @@ extension ViewController : TVICameraCapturerDelegate {
         capturer.previewView.removeFromSuperview()
     }
 }
+
+
+class ExampleAVPlayerSource: NSObject {
+
+    private let sampleQueue: DispatchQueue
+    private var outputTimer: CADisplayLink? = nil
+    private var videoOutput: AVPlayerItemVideoOutput? = nil
+
+    static private var frameCounter = UInt32(0)
+
+    init(item: AVPlayerItem) {
+        sampleQueue = DispatchQueue(label: "", qos: DispatchQoS.userInteractive,
+                                    attributes: DispatchQueue.Attributes(rawValue: 0),
+                                    autoreleaseFrequency: DispatchQueue.AutoreleaseFrequency.workItem,
+                                    target: nil)
+
+        super.init()
+
+        let timer = CADisplayLink(target: self,
+                                  selector: #selector(ExampleAVPlayerSource.displayLinkDidFire(displayLink:)))
+        timer.preferredFramesPerSecond = 30
+        timer.isPaused = true
+        timer.add(to: RunLoop.current, forMode: RunLoop.Mode.common)
+        outputTimer = timer
+
+        // Note: It appears requesting IOSurface backing causes a crash on iPhone X / iOS 12.0.1.
+        let attributes = [
+            //            kCVPixelBufferIOSurfacePropertiesKey as String : [],
+            kCVPixelBufferPixelFormatTypeKey as String : kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
+            ] as [String : Any]
+
+        videoOutput = AVPlayerItemVideoOutput(pixelBufferAttributes: attributes)
+        videoOutput?.setDelegate(self, queue: sampleQueue)
+        videoOutput?.requestNotificationOfMediaDataChange(withAdvanceInterval: 0.1)
+
+        item.add(videoOutput!)
+    }
+
+    @objc func displayLinkDidFire(displayLink: CADisplayLink) {
+        guard let output = videoOutput else {
+            return
+        }
+
+        let targetHostTime = displayLink.targetTimestamp
+        let targetItemTime = output.itemTime(forHostTime: targetHostTime)
+
+        if output.hasNewPixelBuffer(forItemTime: targetItemTime) {
+            var presentationTime = CMTime.zero
+            let pixelBuffer = output.copyPixelBuffer(forItemTime: targetItemTime, itemTimeForDisplay: &presentationTime)
+
+            ExampleAVPlayerSource.frameCounter += 1
+            if ExampleAVPlayerSource.frameCounter % 30 == 0 {
+                print("Copied new pixel buffer: ", pixelBuffer as Any)
+            }
+        } else {
+            // TODO: Consider suspending the timer and requesting a notification when media becomes available.
+        }
+    }
+
+    @objc func stopTimer() {
+        outputTimer?.invalidate()
+    }
+}
+
+extension ExampleAVPlayerSource: AVPlayerItemOutputPullDelegate {
+    func outputMediaDataWillChange(_ sender: AVPlayerItemOutput) {
+        print(#function)
+        // Begin to receive video frames.
+        outputTimer?.isPaused = false
+    }
+
+    func outputSequenceWasFlushed(_ output: AVPlayerItemOutput) {
+        // TODO: Flush and output a black frame while we wait.
+    }
+}
+
+class ExampleAVPlayerView: UIView {
+
+    init(frame: CGRect, player: AVPlayer) {
+        super.init(frame: frame)
+        self.playerLayer.player = player
+        self.playerLayer.videoGravity = AVLayerVideoGravity.resizeAspect
+    }
+
+    required init?(coder aDecoder: NSCoder) {
+        super.init(coder: aDecoder)
+        // It won't be possible to hookup an AVPlayer yet.
+        self.playerLayer.videoGravity = AVLayerVideoGravity.resizeAspect
+    }
+
+    var playerLayer : AVPlayerLayer {
+        get {
+            return self.layer as! AVPlayerLayer
+        }
+    }
+
+    override class var layerClass : AnyClass {
+        return AVPlayerLayer.self
+    }
+
+}
+
+
 

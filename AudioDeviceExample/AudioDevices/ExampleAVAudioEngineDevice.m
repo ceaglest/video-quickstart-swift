@@ -7,6 +7,7 @@
 
 #import "ExampleAVAudioEngineDevice.h"
 
+
 // We want to get as close to 10 msec buffers as possible because this is what the media engine prefers.
 static double const kPreferredIOBufferDuration = 0.01;
 
@@ -54,6 +55,12 @@ typedef struct AudioCapturerContext {
     AudioUnit audioUnit;
 } AudioCapturerContext;
 
+typedef struct ExampleAVPlayerContext {
+    TVIAudioDeviceContext deviceContext;
+    size_t expectedFramesPerBuffer;
+    size_t maxFramesPerBuffer;
+} ExampleAVPlayerContext;
+
 // The VoiceProcessingIO audio unit uses bus 0 for ouptut, and bus 1 for input.
 static int kOutputBus = 0;
 static int kInputBus = 1;
@@ -78,9 +85,93 @@ static size_t kMaximumFramesPerBuffer = 3072;
 @property (nonatomic, strong) AVAudioPlayerNode *player;
 @property (nonatomic, strong) AVAudioUnitReverb *reverb;
 
+@property (nonatomic, assign, nullable) TPCircularBuffer *audioTapBuffer;
+
+@property (nonatomic, assign) AudioStreamBasicDescription tapProcessingFormat;
+@property (nonatomic, assign) AVAudioFrameCount maxFrames;
+@property (nonatomic, strong) AVAudioFormat *format;
+
 @end
 
+#pragma mark - MTAudioProcessingTap
+
+// TODO: Bad robot.
+static AudioStreamBasicDescription *audioFormat = NULL;
+
+void init(MTAudioProcessingTapRef tap, void *clientInfo, void **tapStorageOut) {
+    // Provide access to our device in the Callbacks.
+    *tapStorageOut = clientInfo;
+}
+
+void finalize(MTAudioProcessingTapRef tap) {
+//    ExampleAVAudioEngineDevice *device = (__bridge ExampleAVAudioEngineDevice *) MTAudioProcessingTapGetStorage(tap);
+//    TPCircularBuffer *buffer = NULL;
+//
+//    TPCircularBufferCleanup(buffer);
+}
+
+void prepare(MTAudioProcessingTapRef tap,
+             CMItemCount maxFrames,
+             const AudioStreamBasicDescription *processingFormat) {
+    NSLog(@"Preparing the Audio Tap Processor");
+
+    ExampleAVAudioEngineDevice *device = (__bridge ExampleAVAudioEngineDevice *) MTAudioProcessingTapGetStorage(tap);
+    device.tapProcessingFormat = *processingFormat;
+
+
+    AudioStreamBasicDescription d = device.tapProcessingFormat;
+    device.format = [[AVAudioFormat alloc] initWithStreamDescription:&d];
+}
+
+void unprepare(MTAudioProcessingTapRef tap) {
+}
+
+void process(MTAudioProcessingTapRef tap,
+             CMItemCount numberFrames,
+             MTAudioProcessingTapFlags flags,
+             AudioBufferList *bufferListInOut,
+             CMItemCount *numberFramesOut,
+             MTAudioProcessingTapFlags *flagsOut) {
+    ExampleAVAudioEngineDevice *device = (__bridge ExampleAVAudioEngineDevice *) MTAudioProcessingTapGetStorage(tap);
+
+    CMTimeRange sourceRange;
+    OSStatus status = MTAudioProcessingTapGetSourceAudio(tap,
+                                                         numberFrames,
+                                                         bufferListInOut,
+                                                         flagsOut,
+                                                         &sourceRange,
+                                                         numberFramesOut);
+
+    if (status != kCVReturnSuccess) {
+        // TODO
+        return;
+    }
+
+    if (!device.player) {
+        device.player = [[AVAudioPlayerNode alloc] init];
+        [device.engine attachNode:device.player];
+        [device.engine connect:device.player to:device.engine.mainMixerNode format:device.format];
+        [device.player play];
+    }
+
+    AVAudioPCMBuffer *outBuffer = [device updateWithAudioBuffer:bufferListInOut capacity:numberFrames];
+    [device.player scheduleBuffer:outBuffer completionHandler:^{}];
+
+    NSLog(@"PTPT-blah");
+}
+
 @implementation ExampleAVAudioEngineDevice
+
+- (AVAudioPCMBuffer *)updateWithAudioBuffer:(AudioBufferList *)list capacity:(AVAudioFrameCount)capacity {
+    AudioBuffer *pBuffer = &list->mBuffers[0];
+    AVAudioPCMBuffer *outBuffer = [[AVAudioPCMBuffer alloc] initWithPCMFormat:self.format frameCapacity:capacity];
+    outBuffer.frameLength = pBuffer->mDataByteSize / sizeof(float);
+    float *pData = (float *)pBuffer->mData;
+    memcpy(outBuffer.floatChannelData[0], pData, pBuffer->mDataByteSize);
+    memcpy(outBuffer.floatChannelData[1], pData, pBuffer->mDataByteSize);
+
+    return outBuffer;
+}
 
 #pragma mark - Init & Dealloc
 
@@ -89,6 +180,8 @@ static size_t kMaximumFramesPerBuffer = 3072;
 
     if (self) {
         [self setupAVAudioSession];
+
+        _audioTapBuffer = malloc(sizeof(TPCircularBuffer));
 
         /*
          * Initialize rendering and capturing context. The deviceContext will be be filled in when startRendering or
@@ -117,6 +210,11 @@ static size_t kMaximumFramesPerBuffer = 3072;
 }
 
 - (void)dealloc {
+    if (_audioTapBuffer != NULL) {
+        free(_audioTapBuffer);
+        _audioTapBuffer = NULL;
+    }
+
     [self unregisterAVAudioSessionObservers];
 
     [self teardownAudioEngine];
@@ -160,6 +258,31 @@ static size_t kMaximumFramesPerBuffer = 3072;
     NSLog(@"This device uses a maximum slice size of %d frames.", (unsigned int)framesPerSlice);
     kMaximumFramesPerBuffer = (size_t)framesPerSlice;
     AudioComponentInstanceDispose(audioUnit);
+}
+
+- (MTAudioProcessingTapRef)setupTap {
+    MTAudioProcessingTapCallbacks callbacks;
+    callbacks.clientInfo = (__bridge void *)(self);
+    callbacks.init = init;
+    callbacks.prepare = prepare;
+    callbacks.process = process;
+    callbacks.unprepare = unprepare;
+    callbacks.finalize = finalize;
+    callbacks.version = 0;
+
+    // Init other fields of callbacks
+    MTAudioProcessingTapRef tap = nil;
+    OSStatus result = MTAudioProcessingTapCreate(kCFAllocatorDefault,
+                                                 &callbacks,
+                                                 kMTAudioProcessingTapCreationFlag_PostEffects,
+                                                 &tap);
+
+    if (result == kCVReturnSuccess) {
+        return tap;
+    } else {
+        NSLog(@"Failed to setup a tap");
+        return nil;
+    }
 }
 
 #pragma mark - Private (AVAudioEngine)
@@ -906,4 +1029,5 @@ static OSStatus ExampleAVAudioEngineDeviceRecordCallback(void *refCon,
 }
 
 @end
+
 
